@@ -9,6 +9,10 @@ import {
   type ForgotPasswordFieldErrors,
 } from '@/lib/validation/forgot-password'
 import {
+  validateResetPasswordInput,
+  type ResetPasswordFieldErrors,
+} from '@/lib/validation/reset-password'
+import {
   isIdentityRevealingError,
   isRateLimitError,
   mapAuthErrorToHebrew,
@@ -153,8 +157,12 @@ export async function forgotPasswordAction(
 
   const supabase = await createClient()
 
+  // Points at the PKCE code-exchange callback, not directly at
+  // /reset-password: GoTrue's own hosted verify step redirects here with
+  // ?code=..., which must be exchanged for a session before the reset
+  // page can do anything (see src/app/auth/confirm/route.ts).
   const { error } = await supabase.auth.resetPasswordForEmail(input.email.trim(), {
-    redirectTo: `${siteUrl}/reset-password`,
+    redirectTo: `${siteUrl}/auth/confirm`,
   })
 
   // Only a rate-limit error is safe to surface distinctly — it doesn't
@@ -166,4 +174,58 @@ export async function forgotPasswordAction(
   }
 
   return { success: true, message: RESET_EMAIL_MESSAGE }
+}
+
+export type ResetPasswordFormState =
+  | {
+      errors?: ResetPasswordFieldErrors
+      message?: string
+      success?: boolean
+    }
+  | undefined
+
+const INVALID_LINK_MESSAGE = 'הקישור פג תוקף או שאינו תקין. יש לבקש קישור חדש לאיפוס סיסמה.'
+const RESET_SUCCESS_MESSAGE = 'הסיסמה עודכנה בהצלחה. ניתן להתחבר עכשיו עם הסיסמה החדשה.'
+
+export async function resetPasswordAction(
+  _prevState: ResetPasswordFormState,
+  formData: FormData
+): Promise<ResetPasswordFormState> {
+  const input = {
+    password: String(formData.get('password') ?? ''),
+    confirmPassword: String(formData.get('confirmPassword') ?? ''),
+  }
+
+  const errors = validateResetPasswordInput(input)
+  if (Object.keys(errors).length > 0) {
+    return { errors }
+  }
+
+  const supabase = await createClient()
+
+  // updateUser() always acts on the CURRENT session's own user — there is
+  // no user id/email field anywhere in this form or action for a caller to
+  // supply. Re-verify the session here too (not just at page-render time)
+  // so this action is safe even if invoked directly.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    return { message: INVALID_LINK_MESSAGE }
+  }
+
+  const { error } = await supabase.auth.updateUser({ password: input.password })
+
+  if (error) {
+    return { message: mapAuthErrorToHebrew(error) }
+  }
+
+  // Close out the recovery session so "continue to /login" (per the
+  // checkpoint's own behavior spec) requires actually authenticating with
+  // the new password, rather than silently carrying the recovery session
+  // forward.
+  await supabase.auth.signOut()
+
+  return { success: true, message: RESET_SUCCESS_MESSAGE }
 }

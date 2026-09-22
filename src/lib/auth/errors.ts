@@ -31,6 +31,7 @@ const CODE_MESSAGES: Partial<Record<string, string>> = {
   invalid_credentials: 'אימייל או סיסמה שגויים.',
   email_not_confirmed: 'יש לאשר את כתובת הדוא"ל לפני ההתחברות. בדקו את תיבת הדואר שלכם.',
   user_banned: 'החשבון חסום. פנו לתמיכה.',
+  same_password: 'הסיסמה החדשה זהה לסיסמה הנוכחית. יש לבחור סיסמה אחרת.',
 }
 
 export function mapAuthErrorToHebrew(error: AuthError): string {
