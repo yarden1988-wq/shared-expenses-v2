@@ -4,7 +4,16 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { validateRegisterInput, type RegisterFieldErrors } from '@/lib/validation/register'
 import { validateLoginInput, type LoginFieldErrors } from '@/lib/validation/login'
-import { isIdentityRevealingError, mapAuthErrorToHebrew } from '@/lib/auth/errors'
+import {
+  validateForgotPasswordInput,
+  type ForgotPasswordFieldErrors,
+} from '@/lib/validation/forgot-password'
+import {
+  isIdentityRevealingError,
+  isRateLimitError,
+  mapAuthErrorToHebrew,
+  GENERIC_ERROR_MESSAGE,
+} from '@/lib/auth/errors'
 
 export type RegisterFormState =
   | {
@@ -106,4 +115,55 @@ export async function logoutAction() {
   const supabase = await createClient()
   await supabase.auth.signOut()
   redirect('/login')
+}
+
+export type ForgotPasswordFormState =
+  | {
+      errors?: ForgotPasswordFieldErrors
+      message?: string
+      success?: boolean
+    }
+  | undefined
+
+const RESET_EMAIL_MESSAGE =
+  'אם קיים חשבון המשויך לכתובת זו, נשלח אליו קישור לאיפוס הסיסמה.'
+
+export async function forgotPasswordAction(
+  _prevState: ForgotPasswordFormState,
+  formData: FormData
+): Promise<ForgotPasswordFormState> {
+  const input = {
+    email: String(formData.get('email') ?? ''),
+  }
+
+  const errors = validateForgotPasswordInput(input)
+  if (Object.keys(errors).length > 0) {
+    return { errors }
+  }
+
+  // The redirect target must come only from a trusted, server-configured
+  // value — never from request headers (Host/X-Forwarded-Host are
+  // client-controllable and would allow password-reset link poisoning).
+  // Fail safely if it's not configured, before any Supabase call is made,
+  // so this can't become an enumeration signal either.
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL
+  if (!siteUrl) {
+    return { message: GENERIC_ERROR_MESSAGE }
+  }
+
+  const supabase = await createClient()
+
+  const { error } = await supabase.auth.resetPasswordForEmail(input.email.trim(), {
+    redirectTo: `${siteUrl}/reset-password`,
+  })
+
+  // Only a rate-limit error is safe to surface distinctly — it doesn't
+  // reveal whether the email is registered. Every other outcome, including
+  // any other Supabase error, returns the identical generic message so the
+  // response can't be used to enumerate accounts.
+  if (error && isRateLimitError(error)) {
+    return { message: mapAuthErrorToHebrew(error) }
+  }
+
+  return { success: true, message: RESET_EMAIL_MESSAGE }
 }
