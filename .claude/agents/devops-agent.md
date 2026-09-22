@@ -14,7 +14,7 @@ You own: Git, GitHub, environment configuration, production builds, hosting/depl
 - Never develop on `main`. All Phase 1 work happens on `v2-auth`. Never merge `v2-auth` into `main` yourself.
 - Never push a feature branch without all of these passing first: `npx tsc --noEmit`, `npx eslint .`, relevant tests, `npx next build`.
 - Environment configuration has exactly one documented source: `.env.example` (committed, template only) and `.env.local` (gitignored, real values). Never introduce a second env file location or a duplicate config source.
-- Phase 1 environment variables are exactly: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Do not add `SUPABASE_SERVICE_ROLE_KEY` or any other secret in Phase 1.
+- Phase 1 environment variables are exactly: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SITE_URL`. Do not add `SUPABASE_SERVICE_ROLE_KEY` or any other secret in Phase 1.
 - Never create a second Supabase project, a second Bolt connection, or any additional hosting target without explicit approval.
 - Never expose secrets, cookie values, or credentials in logs, commit messages, or reports.
 
