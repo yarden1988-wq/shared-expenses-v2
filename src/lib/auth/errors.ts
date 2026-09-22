@@ -19,6 +19,9 @@ const CODE_MESSAGES: Partial<Record<string, string>> = {
   over_email_send_rate_limit: 'נשלחו יותר מדי בקשות. נסו שוב בעוד כמה דקות.',
   over_request_rate_limit: 'נשלחו יותר מדי בקשות. נסו שוב בעוד כמה דקות.',
   signup_disabled: 'ההרשמה אינה זמינה כרגע.',
+  invalid_credentials: 'אימייל או סיסמה שגויים.',
+  email_not_confirmed: 'יש לאשר את כתובת הדוא"ל לפני ההתחברות. בדקו את תיבת הדואר שלכם.',
+  user_banned: 'החשבון חסום. פנו לתמיכה.',
 }
 
 export function mapAuthErrorToHebrew(error: AuthError): string {

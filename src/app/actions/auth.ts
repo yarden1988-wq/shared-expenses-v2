@@ -1,7 +1,9 @@
 'use server'
 
+import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { validateRegisterInput, type RegisterFieldErrors } from '@/lib/validation/register'
+import { validateLoginInput, type LoginFieldErrors } from '@/lib/validation/login'
 import { isIdentityRevealingError, mapAuthErrorToHebrew } from '@/lib/auth/errors'
 
 export type RegisterFormState =
@@ -63,4 +65,39 @@ export async function registerAction(
   // belongs in proxy.ts (a later checkpoint), applied uniformly regardless
   // of how the session was created.
   return { success: true, message: CHECK_EMAIL_MESSAGE }
+}
+
+export type LoginFormState =
+  | {
+      errors?: LoginFieldErrors
+      message?: string
+    }
+  | undefined
+
+export async function loginAction(
+  _prevState: LoginFormState,
+  formData: FormData
+): Promise<LoginFormState> {
+  const input = {
+    email: String(formData.get('email') ?? ''),
+    password: String(formData.get('password') ?? ''),
+  }
+
+  const errors = validateLoginInput(input)
+  if (Object.keys(errors).length > 0) {
+    return { errors }
+  }
+
+  const supabase = await createClient()
+
+  const { error } = await supabase.auth.signInWithPassword({
+    email: input.email.trim(),
+    password: input.password,
+  })
+
+  if (error) {
+    return { message: mapAuthErrorToHebrew(error) }
+  }
+
+  redirect('/dashboard')
 }
