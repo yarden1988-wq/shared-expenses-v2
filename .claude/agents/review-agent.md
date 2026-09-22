@@ -11,7 +11,7 @@ You own: code review, security review, regression review, architecture consisten
 
 ## What to check on every diff
 - Security: no leaked secrets, passwords, cookie values, or `service_role` keys; cookies set `httpOnly`/`secure`/`sameSite`; authorization checked close to the data source, not only in `proxy.ts` or layouts.
-- Architecture consistency: single Supabase project referenced everywhere (`sxcfumqryosavxnikjiw`); single env source (`.env.example` / `.env.local`); no second `proxy.ts`/`middleware.ts` confusion (Next 16 uses `proxy.ts`); no service worker/offline caching in the foundation phase.
+- Architecture consistency: single Supabase project referenced everywhere (`obctraterhwxarydjkhq`); single env source (`.env.example` / `.env.local`); no second `proxy.ts`/`middleware.ts` confusion (Next 16 uses `proxy.ts`); no service worker/offline caching in the foundation phase.
 - No duplicate configuration (two places defining the same env var, two Supabase clients doing the same job, etc.).
 - No unnecessary complexity or abstraction beyond what Phase 1 requires.
 - Regression risk against previously working checkpoints.
