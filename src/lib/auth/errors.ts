@@ -34,7 +34,31 @@ const CODE_MESSAGES: Partial<Record<string, string>> = {
   same_password: 'הסיסמה החדשה זהה לסיסמה הנוכחית. יש לבחור סיסמה אחרת.',
 }
 
+// AuthWeakPasswordError (a subtype of AuthError, not separately exported
+// in a way we rely on) carries a structured `reasons` array at runtime:
+// 'length' | 'characters' | 'pwned'. Our own client+server validation
+// already mirrors the length/character rules before ever calling Supabase,
+// so in practice the only reason that should ever reach this path is
+// 'pwned' (Supabase's breached-password check, which can't be replicated
+// client-side) — but this handles any reason Supabase reports, not just
+// the one we expect, so nothing here is guessed.
+function getWeakPasswordMessage(error: AuthError): string | undefined {
+  if (error.code !== 'weak_password') return undefined
+  const reasons = (error as AuthError & { reasons?: unknown }).reasons
+  if (!Array.isArray(reasons) || reasons.length === 0) return undefined
+  if (reasons.includes('pwned')) {
+    return 'הסיסמה שנבחרה ידועה מדליפות מידע ברשת ואינה בטוחה לשימוש. יש לבחור סיסמה אחרת.'
+  }
+  if (reasons.includes('length') || reasons.includes('characters')) {
+    return 'הסיסמה אינה עומדת בדרישות המפורטות מעל שדה הסיסמה.'
+  }
+  return undefined
+}
+
 export function mapAuthErrorToHebrew(error: AuthError): string {
+  const weakPasswordMessage = getWeakPasswordMessage(error)
+  if (weakPasswordMessage) return weakPasswordMessage
+
   const message = error.code ? CODE_MESSAGES[error.code] : undefined
   return message ?? GENERIC_ERROR_MESSAGE
 }
