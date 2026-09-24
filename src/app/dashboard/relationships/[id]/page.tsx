@@ -42,6 +42,12 @@ export default async function RelationshipDetailPage({
           >
             צפייה בילדים
           </Link>
+          <Link
+            href={`/dashboard/relationships/${relationship.id}/expenses`}
+            className="rounded border border-zinc-300 px-4 py-2 text-center"
+          >
+            צפייה בהוצאות
+          </Link>
         </>
       )}
 

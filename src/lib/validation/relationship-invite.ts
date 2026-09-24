@@ -25,13 +25,15 @@ export function validateSplitRatio(
     parentTwoPercentage === null ||
     Number.isNaN(parentOnePercentage) ||
     Number.isNaN(parentTwoPercentage) ||
+    !Number.isInteger(parentOnePercentage) ||
+    !Number.isInteger(parentTwoPercentage) ||
     parentOnePercentage < 0 ||
     parentTwoPercentage < 0 ||
     parentOnePercentage > 100 ||
     parentTwoPercentage > 100 ||
     parentOnePercentage + parentTwoPercentage !== 100
   ) {
-    return 'שני המספרים חייבים להיות בין 0 ל-100 ולהסתכם ב-100'
+    return 'שני המספרים חייבים להיות מספרים שלמים בין 0 ל-100 ולהסתכם ב-100'
   }
   return undefined
 }
