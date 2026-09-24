@@ -1,3 +1,5 @@
+import { getUnmetPasswordRequirements } from './password'
+
 export type RegisterFieldErrors = {
   firstName?: string
   lastName?: string
@@ -30,8 +32,11 @@ export function validateRegisterInput(input: RegisterInput): RegisterFieldErrors
 
   if (!input.password) {
     errors.password = 'שדה חובה'
-  } else if (input.password.length < 8) {
-    errors.password = 'הסיסמה חייבת להכיל לפחות 8 תווים'
+  } else {
+    const unmet = getUnmetPasswordRequirements(input.password)
+    if (unmet.length > 0) {
+      errors.password = `הסיסמה חסרה: ${unmet.map((r) => r.label).join(', ')}`
+    }
   }
 
   if (!input.confirmPassword) {

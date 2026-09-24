@@ -1,12 +1,14 @@
 'use client'
 
-import { useActionState } from 'react'
+import { useActionState, useState } from 'react'
 import { registerAction, type RegisterFormState } from '@/app/actions/auth'
+import { PASSWORD_REQUIREMENTS } from '@/lib/validation/password'
 
 const initialState: RegisterFormState = undefined
 
 export default function RegisterPage() {
   const [state, formAction, pending] = useActionState(registerAction, initialState)
+  const [password, setPassword] = useState('')
 
   if (state?.success) {
     return (
@@ -98,10 +100,26 @@ export default function RegisterPage() {
             autoComplete="new-password"
             minLength={8}
             required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
             className="rounded border border-zinc-300 px-3 py-2 text-right"
             aria-invalid={!!state?.errors?.password}
-            aria-describedby={state?.errors?.password ? 'password-error' : undefined}
+            aria-describedby={
+              [state?.errors?.password ? 'password-error' : null, 'password-requirements']
+                .filter(Boolean)
+                .join(' ') || undefined
+            }
           />
+          <ul id="password-requirements" className="flex flex-col gap-0.5 text-sm">
+            {PASSWORD_REQUIREMENTS.map((req) => {
+              const met = req.test(password)
+              return (
+                <li key={req.key} className={met ? 'text-green-700' : 'text-zinc-500'}>
+                  {met ? '✓' : '○'} {req.label}
+                </li>
+              )
+            })}
+          </ul>
           {state?.errors?.password && (
             <p id="password-error" className="text-sm text-red-600">
               {state.errors.password}
