@@ -28,6 +28,18 @@
 -- - expense_items.is_approved is nullable and unused by the binary
 --   approve/reject path — present only so a future partial-approval-only
 --   RPC needs no schema change.
+-- - expenses.receipt_storage_path (nullable) is schema-prep for attaching
+--   the actual receipt file from a PRIVATE Supabase Storage bucket (never
+--   a public URL). No bucket, upload UI, or storage.objects RLS policy is
+--   created by this migration — that's separate infrastructure that must
+--   land before this field is genuinely usable/secure; it's a real gap,
+--   not silently omitted. Still no OCR.
+-- - update_expense() unconditionally clears status_reason/decided_by/
+--   decided_at when saving, so a changes_requested->draft edit never
+--   retains a stale rejection/decision reason. submitted_at is
+--   deliberately left untouched (see the update_expense body comment) to
+--   preserve the original-submission audit trail; submit_expense() always
+--   sets it fresh on the next real submission regardless.
 
 begin;
 
@@ -70,6 +82,14 @@ create table if not exists public.expenses (
   category_id uuid not null references public.expense_categories (id),
   merchant_name text not null check (length(trim(merchant_name)) > 0),
   expense_date date not null check (expense_date <= current_date),
+  -- Path within a PRIVATE Supabase Storage bucket (never a public URL).
+  -- Schema-only for now: no bucket, upload UI, or storage.objects RLS
+  -- policy exists yet — those are separate infrastructure that must land
+  -- before this field is actually usable/secure. Optional; no OCR reads
+  -- it. Convention (enforced in create_expense/update_expense, not by a
+  -- DB constraint, since Storage paths aren't FK-able): must start with
+  -- 'relationships/<relationship_id>/'.
+  receipt_storage_path text,
   status text not null default 'draft'
     check (status in ('draft', 'submitted', 'approved', 'partially_approved', 'rejected', 'changes_requested')),
   status_reason text,
@@ -247,7 +267,8 @@ create or replace function public.create_expense(
   p_items jsonb,
   p_child_ids uuid[],
   p_parent_one_percentage int default null,
-  p_parent_two_percentage int default null
+  p_parent_two_percentage int default null,
+  p_receipt_storage_path text default null
 )
 returns jsonb
 language plpgsql
@@ -312,6 +333,11 @@ begin
     raise exception 'items_required';
   end if;
 
+  if p_receipt_storage_path is not null
+     and p_receipt_storage_path not like ('relationships/' || p_relationship_id || '/%') then
+    raise exception 'invalid_receipt_storage_path';
+  end if;
+
   if p_parent_one_percentage is not null or p_parent_two_percentage is not null then
     if p_parent_one_percentage is null or p_parent_two_percentage is null
        or p_parent_one_percentage < 0 or p_parent_two_percentage < 0
@@ -339,11 +365,12 @@ begin
 
   insert into public.expenses (
     relationship_id, created_by, category_id, merchant_name, expense_date,
-    status, parent_one_percentage, parent_two_percentage, eligible_amount
+    status, parent_one_percentage, parent_two_percentage, eligible_amount,
+    receipt_storage_path
   )
   values (
     p_relationship_id, v_uid, p_category_id, trim(p_merchant_name), p_expense_date,
-    'draft', v_p1, v_p2, 0
+    'draft', v_p1, v_p2, 0, p_receipt_storage_path
   )
   returning id into v_expense_id;
 
@@ -394,7 +421,8 @@ create or replace function public.update_expense(
   p_items jsonb,
   p_child_ids uuid[],
   p_parent_one_percentage int default null,
-  p_parent_two_percentage int default null
+  p_parent_two_percentage int default null,
+  p_receipt_storage_path text default null
 )
 returns jsonb
 language plpgsql
@@ -465,6 +493,11 @@ begin
     raise exception 'items_required';
   end if;
 
+  if p_receipt_storage_path is not null
+     and p_receipt_storage_path not like ('relationships/' || v_expense.relationship_id || '/%') then
+    raise exception 'invalid_receipt_storage_path';
+  end if;
+
   if p_parent_one_percentage is not null or p_parent_two_percentage is not null then
     if p_parent_one_percentage is null or p_parent_two_percentage is null
        or p_parent_one_percentage < 0 or p_parent_two_percentage < 0
@@ -518,6 +551,17 @@ begin
     on conflict do nothing;
   end loop;
 
+  -- status_reason/decided_by/decided_at are cleared unconditionally: if
+  -- status is already 'draft' they're already null (never set pre-first-
+  -- submission), and if status is 'changes_requested' this discards the
+  -- now-stale review decision so the record doesn't show an old rejection
+  -- reason/reviewer against edited content. submitted_at is deliberately
+  -- LEFT UNCHANGED here (not nulled) to preserve the original-submission
+  -- audit trail; submit_expense() below unconditionally sets it fresh on
+  -- every submission anyway, so the only window where it could look
+  -- "stale" is while this draft is being edited — invisible to the other
+  -- participant, since drafts are private to their creator at the RLS
+  -- level.
   update public.expenses
   set category_id = p_category_id,
       merchant_name = trim(p_merchant_name),
@@ -525,7 +569,11 @@ begin
       parent_one_percentage = v_p1,
       parent_two_percentage = v_p2,
       eligible_amount = v_eligible_amount,
+      receipt_storage_path = p_receipt_storage_path,
       status = case when status = 'changes_requested' then 'draft' else status end,
+      status_reason = null,
+      decided_by = null,
+      decided_at = null,
       updated_at = now()
   where id = p_expense_id;
 
@@ -796,11 +844,11 @@ $$;
 -- (Supabase's default privileges otherwise leave EXECUTE open to anon).
 -- _recalculate_balance gets NO grant to any role, ever — internal only.
 -- ============================================================
-revoke all on function public.create_expense(uuid, uuid, text, date, jsonb, uuid[], int, int) from public, anon, authenticated;
-grant execute on function public.create_expense(uuid, uuid, text, date, jsonb, uuid[], int, int) to authenticated;
+revoke all on function public.create_expense(uuid, uuid, text, date, jsonb, uuid[], int, int, text) from public, anon, authenticated;
+grant execute on function public.create_expense(uuid, uuid, text, date, jsonb, uuid[], int, int, text) to authenticated;
 
-revoke all on function public.update_expense(uuid, uuid, text, date, jsonb, uuid[], int, int) from public, anon, authenticated;
-grant execute on function public.update_expense(uuid, uuid, text, date, jsonb, uuid[], int, int) to authenticated;
+revoke all on function public.update_expense(uuid, uuid, text, date, jsonb, uuid[], int, int, text) from public, anon, authenticated;
+grant execute on function public.update_expense(uuid, uuid, text, date, jsonb, uuid[], int, int, text) to authenticated;
 
 revoke all on function public.submit_expense(uuid) from public, anon, authenticated;
 grant execute on function public.submit_expense(uuid) to authenticated;
