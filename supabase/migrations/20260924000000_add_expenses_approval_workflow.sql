@@ -40,6 +40,19 @@
 --   deliberately left untouched (see the update_expense body comment) to
 --   preserve the original-submission audit trail; submit_expense() always
 --   sets it fresh on the next real submission regardless.
+-- - Lifecycle/active-relationship gap closed: create_expense and
+--   update_expense already required relationship.status = 'active';
+--   submit_expense and approve_expense now do too (a relationship can go
+--   inactive after a draft/submission already exists). reject_expense is
+--   deliberately NOT gated — it's a terminal, no-financial-effect closing
+--   action and must stay available to close out an expense stuck in either
+--   'submitted' or 'changes_requested' once the relationship is inactive
+--   (it now accepts both statuses, not just 'submitted'). request_expense_
+--   changes IS gated, since it only makes sense if resubmission remains
+--   possible — reject is the escape valve once it isn't.
+-- - approve_expense now fails with relationship_members_incomplete rather
+--   than silently persisting owed_by_user_id = null if the expected
+--   second relationship member can't be resolved.
 
 begin;
 
@@ -593,6 +606,7 @@ as $$
 declare
   v_uid uuid := auth.uid();
   v_expense public.expenses%rowtype;
+  v_relationship_status text;
 begin
   if v_uid is null then
     raise exception 'not_authenticated';
@@ -605,6 +619,14 @@ begin
 
   if v_expense.created_by <> v_uid then
     raise exception 'not_expense_owner';
+  end if;
+
+  select status into v_relationship_status
+  from public.relationships
+  where id = v_expense.relationship_id;
+
+  if v_relationship_status is distinct from 'active' then
+    raise exception 'relationship_not_active';
   end if;
 
   if v_expense.status <> 'draft' then
@@ -638,6 +660,7 @@ as $$
 declare
   v_uid uuid := auth.uid();
   v_expense public.expenses%rowtype;
+  v_relationship_status text;
   v_other_user_id uuid;
   v_other_position text;
   v_eligible_amount numeric(10,2);
@@ -661,6 +684,17 @@ begin
     where relationship_id = v_expense.relationship_id and user_id = v_uid
   ) then
     raise exception 'not_relationship_member';
+  end if;
+
+  -- A relationship can become inactive (e.g. archived) after an expense
+  -- was already submitted; approving it after the fact would create a
+  -- balance for a relationship no longer being tracked as active.
+  select status into v_relationship_status
+  from public.relationships
+  where id = v_expense.relationship_id;
+
+  if v_relationship_status is distinct from 'active' then
+    raise exception 'relationship_not_active';
   end if;
 
   -- Self-approval is impossible regardless of what the client sends:
@@ -703,6 +737,14 @@ begin
   select user_id, member_position into v_other_user_id, v_other_position
   from public.relationship_members
   where relationship_id = v_expense.relationship_id and user_id <> v_expense.created_by;
+
+  -- Fail safe rather than silently persisting an approved expense with no
+  -- resolvable debtor: a malformed/incomplete relationship_members state
+  -- (fewer than 2 rows for this relationship) must never produce a NULL
+  -- owed_by_user_id, which would silently vanish from balance recalculation.
+  if v_other_user_id is null or v_other_position is null then
+    raise exception 'relationship_members_incomplete';
+  end if;
 
   v_owed_amount := round(
     v_eligible_amount * (
@@ -769,10 +811,19 @@ begin
     raise exception 'cannot_reject_own_expense';
   end if;
 
-  if v_expense.status <> 'submitted' then
-    raise exception 'expense_not_submitted';
+  -- Accepts BOTH 'submitted' and 'changes_requested': reject is the
+  -- universal, terminal, no-financial-effect closing action for either
+  -- live workflow state. Without covering 'changes_requested' too, an
+  -- expense stuck there when the relationship goes inactive would have no
+  -- way out at all (update_expense and submit_expense both require an
+  -- active relationship, so it could never be edited or resubmitted).
+  if v_expense.status not in ('submitted', 'changes_requested') then
+    raise exception 'expense_not_rejectable';
   end if;
 
+  -- Deliberately NOT gated on relationship.status = 'active': reject must
+  -- remain available specifically WHEN a relationship goes inactive while
+  -- an expense is stuck awaiting a response, so it can always be closed.
   update public.expenses
   set status = 'rejected',
       status_reason = trim(p_reason),
@@ -798,6 +849,7 @@ as $$
 declare
   v_uid uuid := auth.uid();
   v_expense public.expenses%rowtype;
+  v_relationship_status text;
 begin
   if v_uid is null then
     raise exception 'not_authenticated';
@@ -817,6 +869,21 @@ begin
 
   if v_expense.created_by = v_uid then
     raise exception 'cannot_request_changes_on_own_expense';
+  end if;
+
+  -- Unlike reject, this IS gated on the relationship being active: request
+  -- changes only makes sense if the submitter can eventually resubmit, and
+  -- submit_expense()/update_expense() both now also require an active
+  -- relationship. Allowing this call on an inactive relationship would just
+  -- move the expense from 'submitted' to 'changes_requested' with false
+  -- hope of resubmission — a dead end reject() can still close out, since
+  -- reject() now accepts 'changes_requested' too.
+  select status into v_relationship_status
+  from public.relationships
+  where id = v_expense.relationship_id;
+
+  if v_relationship_status is distinct from 'active' then
+    raise exception 'relationship_not_active';
   end if;
 
   if v_expense.status <> 'submitted' then
