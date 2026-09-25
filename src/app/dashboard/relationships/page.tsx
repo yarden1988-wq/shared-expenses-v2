@@ -1,6 +1,10 @@
 import Link from 'next/link'
 import { requireUser } from '@/lib/auth/dal'
 import { getRelationshipsForCurrentUser } from '@/lib/relationships/data'
+import { Button } from '@/components/ui/Button'
+import { Card } from '@/components/ui/Card'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 const STATUS_LABELS: Record<string, string> = {
   pending_invitee: 'ממתין לתשובת המוזמן/ת',
@@ -17,30 +21,28 @@ export default async function RelationshipsPage() {
 
   return (
     <main className="mx-auto flex min-h-[70vh] max-w-md flex-col gap-6 px-4 py-8">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">קשרים משותפים</h1>
-        <Link
-          href="/dashboard/relationships/invite"
-          className="rounded bg-zinc-900 px-3 py-1.5 text-sm text-white"
-        >
-          + הזמנה חדשה
-        </Link>
-      </div>
+      <PageHeader
+        title="קשרים משותפים"
+        action={
+          <Link href="/dashboard/relationships/invite">
+            <Button size="sm">+ הזמנה חדשה</Button>
+          </Link>
+        }
+      />
 
       {relationships.length === 0 ? (
-        <p className="text-zinc-600">עדיין אין קשר משותף. אפשר להתחיל בהזמנת שותף/ה להורות.</p>
+        <EmptyState message="עדיין אין קשר משותף. אפשר להתחיל בהזמנת שותף/ה להורות." />
       ) : (
         <ul className="flex flex-col gap-3">
           {relationships.map((r) => (
             <li key={r.id}>
-              <Link
-                href={`/dashboard/relationships/${r.id}`}
-                className="flex flex-col gap-1 rounded border border-zinc-200 p-3 hover:bg-zinc-50"
-              >
-                <span className="font-medium">
-                  {r.counterpartName ?? r.invitation?.invitedEmail ?? 'שותף/ה'}
-                </span>
-                <span className="text-sm text-zinc-600">{STATUS_LABELS[r.status] ?? r.status}</span>
+              <Link href={`/dashboard/relationships/${r.id}`} className="block">
+                <Card className="flex flex-col gap-1 hover:bg-surface-muted">
+                  <span className="font-medium text-foreground">
+                    {r.counterpartName ?? r.invitation?.invitedEmail ?? 'שותף/ה'}
+                  </span>
+                  <span className="text-sm text-muted">{STATUS_LABELS[r.status] ?? r.status}</span>
+                </Card>
               </Link>
             </li>
           ))}

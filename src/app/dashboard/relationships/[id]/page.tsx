@@ -3,6 +3,8 @@ import Link from 'next/link'
 import { requireUser } from '@/lib/auth/dal'
 import { getRelationshipById } from '@/lib/relationships/data'
 import { AcceptRejectForm, RespondToProposalForm } from './actions-forms'
+import { Button } from '@/components/ui/Button'
+import { PageHeader } from '@/components/ui/PageHeader'
 
 export default async function RelationshipDetailPage({
   params,
@@ -22,12 +24,10 @@ export default async function RelationshipDetailPage({
 
   return (
     <main className="mx-auto flex min-h-[70vh] max-w-md flex-col gap-6 px-4 py-8">
-      <h1 className="text-2xl font-semibold">
-        קשר עם {relationship.counterpartName ?? invitation?.invitedEmail ?? 'שותף/ה'}
-      </h1>
+      <PageHeader title={`קשר עם ${relationship.counterpartName ?? invitation?.invitedEmail ?? 'שותף/ה'}`} />
 
       {relationship.revision && (
-        <p className="text-zinc-700">
+        <p className="text-foreground">
           חלוקת הוצאות מוצעת: {relationship.revision.parentOnePercentage}% /{' '}
           {relationship.revision.parentTwoPercentage}%
         </p>
@@ -35,44 +35,40 @@ export default async function RelationshipDetailPage({
 
       {relationship.status === 'active' && (
         <>
-          <p className="text-green-700">הקשר פעיל.</p>
-          <Link
-            href={`/dashboard/relationships/${relationship.id}/children`}
-            className="rounded bg-zinc-900 px-4 py-2 text-center text-white"
-          >
-            צפייה בילדים
+          <p className="text-[var(--color-success)]">הקשר פעיל.</p>
+          <Link href={`/dashboard/relationships/${relationship.id}/children`}>
+            <Button fullWidth>צפייה בילדים</Button>
           </Link>
-          <Link
-            href={`/dashboard/relationships/${relationship.id}/money`}
-            className="rounded border border-zinc-300 px-4 py-2 text-center"
-          >
-            מרכז הכספים
+          <Link href={`/dashboard/relationships/${relationship.id}/money`}>
+            <Button variant="secondary" fullWidth>
+              מרכז הכספים
+            </Button>
           </Link>
         </>
       )}
 
-      {relationship.status === 'rejected' && <p className="text-red-700">ההזמנה נדחתה.</p>}
+      {relationship.status === 'rejected' && (
+        <p className="text-[var(--color-danger)]">ההזמנה נדחתה.</p>
+      )}
 
       {relationship.status === 'archive_requested' && (
         <>
-          <p className="text-zinc-600">התקבלה בקשה לארכוב הקשר, ממתינה לאישור הצד השני.</p>
-          <Link
-            href={`/dashboard/relationships/${relationship.id}/money`}
-            className="rounded border border-zinc-300 px-4 py-2 text-center"
-          >
-            מרכז הכספים
+          <p className="text-muted">התקבלה בקשה לארכוב הקשר, ממתינה לאישור הצד השני.</p>
+          <Link href={`/dashboard/relationships/${relationship.id}/money`}>
+            <Button variant="secondary" fullWidth>
+              מרכז הכספים
+            </Button>
           </Link>
         </>
       )}
 
       {relationship.status === 'archived' && (
         <>
-          <p className="text-zinc-600">הקשר הועבר לארכיון.</p>
-          <Link
-            href={`/dashboard/relationships/${relationship.id}/money`}
-            className="rounded border border-zinc-300 px-4 py-2 text-center"
-          >
-            מרכז הכספים
+          <p className="text-muted">הקשר הועבר לארכיון.</p>
+          <Link href={`/dashboard/relationships/${relationship.id}/money`}>
+            <Button variant="secondary" fullWidth>
+              מרכז הכספים
+            </Button>
           </Link>
         </>
       )}
@@ -86,7 +82,7 @@ export default async function RelationshipDetailPage({
             currentRevisionId={invitation.currentRevisionId}
           />
         ) : (
-          <p className="text-zinc-600">ממתין לתשובת המוזמן/ת.</p>
+          <p className="text-muted">ממתין לתשובת המוזמן/ת.</p>
         ))}
 
       {relationship.status === 'pending_inviter' &&
@@ -94,10 +90,10 @@ export default async function RelationshipDetailPage({
         (isInviter ? (
           <RespondToProposalForm invitationId={invitation.id} relationshipId={relationship.id} />
         ) : (
-          <p className="text-zinc-600">ממתין לתשובת השולח/ת המקורי/ת.</p>
+          <p className="text-muted">ממתין לתשובת השולח/ת המקורי/ת.</p>
         ))}
 
-      <Link href="/dashboard/relationships" className="text-center text-sm underline">
+      <Link href="/dashboard/relationships" className="text-center text-sm text-primary underline">
         חזרה לרשימת הקשרים
       </Link>
     </main>
