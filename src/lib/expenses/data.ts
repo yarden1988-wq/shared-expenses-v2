@@ -256,47 +256,6 @@ export async function getDefaultSplitForRelationship(relationshipId: string): Pr
   }
 }
 
-export type RelationshipBalance = {
-  netAmount: number
-  direction: 'owed_to_me' | 'i_owe' | 'settled'
-}
-
-type BalanceExpenseRow = {
-  owed_amount: number | null
-  owed_by_user_id: string | null
-  owed_to_user_id: string | null
-}
-
-// Deliberately computed from `expenses` (approved/partially_approved rows),
-// not read from the `balances` table: `balances.net_amount`'s sign is
-// relative to parent_one/parent_two positions, which aren't resolvable
-// client-side (relationship_members has no client-facing SELECT policy —
-// it's only read internally by the SECURITY DEFINER RPCs). Aggregating
-// owed_by_user_id/owed_to_user_id against the current auth.uid() instead
-// sidesteps that entirely and is mathematically equivalent, since those
-// columns are exactly what _recalculate_balance itself sums over.
-export async function getBalanceForCurrentUser(
-  relationshipId: string,
-  userId: string
-): Promise<RelationshipBalance> {
-  const supabase = await createClient()
-  const { data, error } = await supabase
-    .from('expenses')
-    .select('owed_amount, owed_by_user_id, owed_to_user_id')
-    .eq('relationship_id', relationshipId)
-    .in('status', ['approved', 'partially_approved'])
-
-  if (error || !data) return { netAmount: 0, direction: 'settled' }
-
-  let owedToMe = 0
-  let iOwe = 0
-  for (const row of data as unknown as BalanceExpenseRow[]) {
-    const amount = Number(row.owed_amount ?? 0)
-    if (row.owed_to_user_id === userId) owedToMe += amount
-    if (row.owed_by_user_id === userId) iOwe += amount
-  }
-
-  const net = owedToMe - iOwe
-  if (Math.abs(net) < 0.005) return { netAmount: 0, direction: 'settled' }
-  return { netAmount: Math.abs(net), direction: net > 0 ? 'owed_to_me' : 'i_owe' }
-}
+// Balance calculation now lives in `@/lib/money/balance` — it spans both
+// expenses and payments, so it no longer belongs to this expenses-only
+// module. See that file for the current implementation and rationale.

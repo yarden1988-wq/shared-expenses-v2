@@ -43,10 +43,10 @@ export default async function RelationshipDetailPage({
             צפייה בילדים
           </Link>
           <Link
-            href={`/dashboard/relationships/${relationship.id}/expenses`}
+            href={`/dashboard/relationships/${relationship.id}/money`}
             className="rounded border border-zinc-300 px-4 py-2 text-center"
           >
-            צפייה בהוצאות
+            מרכז הכספים
           </Link>
         </>
       )}
@@ -54,10 +54,28 @@ export default async function RelationshipDetailPage({
       {relationship.status === 'rejected' && <p className="text-red-700">ההזמנה נדחתה.</p>}
 
       {relationship.status === 'archive_requested' && (
-        <p className="text-zinc-600">התקבלה בקשה לארכוב הקשר, ממתינה לאישור הצד השני.</p>
+        <>
+          <p className="text-zinc-600">התקבלה בקשה לארכוב הקשר, ממתינה לאישור הצד השני.</p>
+          <Link
+            href={`/dashboard/relationships/${relationship.id}/money`}
+            className="rounded border border-zinc-300 px-4 py-2 text-center"
+          >
+            מרכז הכספים
+          </Link>
+        </>
       )}
 
-      {relationship.status === 'archived' && <p className="text-zinc-600">הקשר הועבר לארכיון.</p>}
+      {relationship.status === 'archived' && (
+        <>
+          <p className="text-zinc-600">הקשר הועבר לארכיון.</p>
+          <Link
+            href={`/dashboard/relationships/${relationship.id}/money`}
+            className="rounded border border-zinc-300 px-4 py-2 text-center"
+          >
+            מרכז הכספים
+          </Link>
+        </>
+      )}
 
       {relationship.status === 'pending_invitee' &&
         invitation &&

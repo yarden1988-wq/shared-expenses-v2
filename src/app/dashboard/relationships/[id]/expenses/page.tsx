@@ -2,7 +2,9 @@ import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import { requireUser } from '@/lib/auth/dal'
 import { getRelationshipById } from '@/lib/relationships/data'
-import { getExpensesForRelationship, getBalanceForCurrentUser } from '@/lib/expenses/data'
+import { SETTLEABLE_RELATIONSHIP_STATUSES } from '@/lib/relationships/constants'
+import { getExpensesForRelationship } from '@/lib/expenses/data'
+import { getBalanceForCurrentUser } from '@/lib/money/balance'
 
 const STATUS_LABELS: Record<string, string> = {
   draft: 'טיוטה',
@@ -22,6 +24,12 @@ const STATUS_STYLES: Record<string, string> = {
   changes_requested: 'bg-orange-100 text-orange-800',
 }
 
+// Historical expenses remain viewable after a relationship archives (they
+// still affect the balance payments settle against) — only *creating* a
+// new one requires genuine 'active' status, matching create_expense's own
+// RPC gate. Viewing is blocked only for the pre-active/terminal-without-
+// history states, where no expense could ever have existed yet.
+
 export default async function ExpensesPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const user = await requireUser()
@@ -31,10 +39,10 @@ export default async function ExpensesPage({ params }: { params: Promise<{ id: s
     notFound()
   }
 
-  if (relationship.status !== 'active') {
+  if (!SETTLEABLE_RELATIONSHIP_STATUSES.includes(relationship.status)) {
     return (
       <main className="mx-auto flex min-h-[70vh] max-w-md flex-col gap-4 px-4 py-8">
-        <p className="text-zinc-700">ניתן לנהל הוצאות רק כאשר הקשר פעיל.</p>
+        <p className="text-zinc-700">ניתן לצפות בהוצאות רק לאחר שהקשר היה פעיל.</p>
         <Link href={`/dashboard/relationships/${id}`} className="text-center text-sm underline">
           חזרה לקשר
         </Link>
@@ -53,24 +61,26 @@ export default async function ExpensesPage({ params }: { params: Promise<{ id: s
     <main className="mx-auto flex min-h-[70vh] max-w-md flex-col gap-6 px-4 py-8">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">הוצאות</h1>
-        <Link
-          href={`/dashboard/relationships/${id}/expenses/new`}
-          className="rounded bg-zinc-900 px-3 py-1.5 text-sm text-white"
-        >
-          + הוצאה חדשה
-        </Link>
+        {relationship.status === 'active' && (
+          <Link
+            href={`/dashboard/relationships/${id}/expenses/new`}
+            className="rounded bg-zinc-900 px-3 py-1.5 text-sm text-white"
+          >
+            + הוצאה חדשה
+          </Link>
+        )}
       </div>
 
       <div className="rounded border border-zinc-200 p-4 text-center">
-        {balance.direction === 'settled' && <p className="text-zinc-600">אין יתרה פתוחה.</p>}
+        {balance.direction === 'settled' && <p className="font-medium text-zinc-700">מאוזן</p>}
         {balance.direction === 'owed_to_me' && (
           <p className="font-medium text-green-700">
-            {counterpartName} חייב/ת לך {balance.netAmount.toFixed(2)} ₪
+            חייבים לך {balance.netAmount.toFixed(2)} ₪ מאת {counterpartName}
           </p>
         )}
         {balance.direction === 'i_owe' && (
           <p className="font-medium text-red-700">
-            את/ה חייב/ת ל{counterpartName} {balance.netAmount.toFixed(2)} ₪
+            את/ה חייב/ת {balance.netAmount.toFixed(2)} ₪ ל{counterpartName}
           </p>
         )}
       </div>
@@ -105,8 +115,8 @@ export default async function ExpensesPage({ params }: { params: Promise<{ id: s
         </ul>
       )}
 
-      <Link href={`/dashboard/relationships/${id}`} className="text-center text-sm underline">
-        חזרה לקשר
+      <Link href={`/dashboard/relationships/${id}/money`} className="text-center text-sm underline">
+        חזרה למרכז הכספים
       </Link>
     </main>
   )
