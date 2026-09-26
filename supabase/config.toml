@@ -1,0 +1,8 @@
+# Supabase CLI config — only the settings this repo needs to pin.
+# Everything else uses CLI defaults.
+
+# The notification sender is called by pg_cron with a shared secret
+# (x-cron-secret), not a user JWT. Pinned here so a redeploy without
+# --no-verify-jwt can't silently 401 every cron call and stop all email.
+[functions.send-notifications]
+verify_jwt = false
