@@ -1,7 +1,9 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
+import { Download, FileText, Paperclip } from 'lucide-react'
 import { requireUser } from '@/lib/auth/dal'
 import { getExpenseById } from '@/lib/expenses/data'
+import { receiptKindLabel } from '@/lib/receipts/constants'
 import { SubmitExpenseForm, ApproveExpenseForm, RejectExpenseForm, RequestChangesForm } from './actions-forms'
 
 const STATUS_LABELS: Record<string, string> = {
@@ -88,9 +90,30 @@ export default async function ExpenseDetailPage({
         )}
       </div>
 
-      <div className="rounded border border-dashed border-zinc-300 p-3 text-sm text-zinc-500">
-        צירוף קבלה יהיה זמין בקרוב.
-      </div>
+      {expense.receiptStoragePath ? (
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-border bg-surface p-4">
+          <div className="flex items-center gap-3">
+            <FileText aria-hidden="true" className="h-5 w-5 shrink-0 text-primary" />
+            <div className="flex flex-col">
+              <span className="text-sm font-medium">קבלה מצורפת</span>
+              <span className="text-xs text-muted">{receiptKindLabel(expense.receiptStoragePath)}</span>
+            </div>
+          </div>
+          {/* Plain <a>, not <Link>: a file download must never be prefetched. */}
+          <a
+            href={`/dashboard/relationships/${id}/expenses/${expenseId}/receipt`}
+            className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-medium hover:bg-surface-muted"
+          >
+            <Download aria-hidden="true" className="h-4 w-4" />
+            הורדה
+          </a>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3 rounded-2xl border border-dashed border-border bg-surface-muted p-4 text-sm text-muted">
+          <Paperclip aria-hidden="true" className="h-5 w-5 shrink-0" />
+          לא צורפה קבלה
+        </div>
+      )}
 
       {isOwner && expense.status === 'draft' && (
         <div className="flex flex-col gap-2">

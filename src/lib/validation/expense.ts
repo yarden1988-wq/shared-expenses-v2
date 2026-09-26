@@ -22,6 +22,7 @@ export type ExpenseFieldErrors = {
   itemsRequired?: string
   childrenRequired?: string
   splitRatio?: string
+  receipt?: string
 }
 
 export function validateExpenseItemInput(item: ExpenseItemInput): ExpenseItemFieldErrors {

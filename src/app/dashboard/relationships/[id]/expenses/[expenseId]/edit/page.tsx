@@ -54,6 +54,7 @@ export default async function EditExpensePage({
         availableChildren={availableChildren}
         defaultParentOnePercentage={defaultSplit?.parentOnePercentage ?? 50}
         defaultParentTwoPercentage={defaultSplit?.parentTwoPercentage ?? 50}
+        initialReceiptPath={expense.receiptStoragePath}
         initialValues={{
           merchantName: expense.merchantName,
           expenseDate: expense.expenseDate,

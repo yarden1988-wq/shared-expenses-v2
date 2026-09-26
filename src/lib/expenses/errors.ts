@@ -23,6 +23,8 @@ const RPC_ERROR_MESSAGES: Partial<Record<string, string>> = {
   item_amount_invalid: 'יש להזין סכום חיובי לכל פריט.',
   invalid_split_ratio: 'החלוקה חייבת להסתכם ב-100%.',
   invalid_receipt_storage_path: 'נתיב הקבלה אינו תקין.',
+  receipt_not_found: 'הקבלה לא נמצאה. יש לצרף אותה מחדש.',
+  receipt_already_attached: 'קבלה זו כבר מצורפת להוצאה אחרת. יש לצרף קובץ חדש.',
   expense_not_found: 'ההוצאה לא נמצאה.',
   not_expense_owner: 'רק מי שיצר/ה את ההוצאה יכול/ה לערוך אותה.',
   expense_not_editable: 'לא ניתן לערוך הוצאה זו במצבה הנוכחי.',
@@ -39,7 +41,15 @@ const RPC_ERROR_MESSAGES: Partial<Record<string, string>> = {
   reason_required: 'יש לציין סיבה.',
 }
 
-export function mapExpenseErrorToHebrew(error: { message?: string } | null | undefined): string {
+export function mapExpenseErrorToHebrew(
+  error: { message?: string; code?: string } | null | undefined
+): string {
+  // Lost race on the one-expense-per-receipt unique index (see
+  // 20260926000000_validate_receipt_storage_path.sql): a raw 23505, not
+  // one of our codes, so match on SQLSTATE + index name.
+  if (error?.code === '23505' && error.message?.includes('expenses_receipt_storage_path_key')) {
+    return RPC_ERROR_MESSAGES.receipt_already_attached!
+  }
   const code = error?.message?.trim()
   if (code && RPC_ERROR_MESSAGES[code]) {
     return RPC_ERROR_MESSAGES[code]

@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { validateExpenseInput, type ExpenseFieldErrors, type ExpenseItemInput } from '@/lib/validation/expense'
 import { mapExpenseErrorToHebrew } from '@/lib/expenses/errors'
+import { RECEIPT_BUCKET, isValidReceiptPath } from '@/lib/receipts/constants'
 
 function parseItems(raw: string): ExpenseItemInput[] {
   try {
@@ -39,12 +40,14 @@ type ParsedExpenseForm = {
   overrideSplit: boolean
   parentOnePercentage: number | null
   parentTwoPercentage: number | null
+  receiptStoragePath: string | null
 }
 
 function parseExpenseForm(formData: FormData): ParsedExpenseForm {
   const overrideSplit = formData.get('overrideSplit') === 'on'
   const parentOneRaw = String(formData.get('parentOnePercentage') ?? '')
   const parentTwoRaw = String(formData.get('parentTwoPercentage') ?? '')
+  const receiptRaw = String(formData.get('receiptStoragePath') ?? '').trim()
 
   return {
     relationshipId: String(formData.get('relationshipId') ?? ''),
@@ -56,7 +59,16 @@ function parseExpenseForm(formData: FormData): ParsedExpenseForm {
     overrideSplit,
     parentOnePercentage: overrideSplit && parentOneRaw !== '' ? Number(parentOneRaw) : null,
     parentTwoPercentage: overrideSplit && parentTwoRaw !== '' ? Number(parentTwoRaw) : null,
+    receiptStoragePath: receiptRaw === '' ? null : receiptRaw,
   }
+}
+
+// Shape check only (the DB re-checks shape, existence and ownership).
+function validateReceiptPath(path: string | null, relationshipId: string): string | undefined {
+  if (path !== null && !isValidReceiptPath(path, relationshipId)) {
+    return 'הקבלה שצורפה אינה תקינה. יש לצרף אותה מחדש.'
+  }
+  return undefined
 }
 
 // ---- Create / update (always leave the expense in draft) ----
@@ -74,7 +86,9 @@ export async function createExpenseAction(
 ): Promise<ExpenseFormState> {
   const parsed = parseExpenseForm(formData)
 
-  const errors = validateExpenseInput(parsed)
+  const errors: ExpenseFieldErrors = validateExpenseInput(parsed)
+  const receiptError = validateReceiptPath(parsed.receiptStoragePath, parsed.relationshipId)
+  if (receiptError) errors.receipt = receiptError
   if (Object.keys(errors).length > 0) {
     return { errors }
   }
@@ -89,7 +103,7 @@ export async function createExpenseAction(
     p_child_ids: parsed.childIds,
     p_parent_one_percentage: parsed.parentOnePercentage,
     p_parent_two_percentage: parsed.parentTwoPercentage,
-    p_receipt_storage_path: null,
+    p_receipt_storage_path: parsed.receiptStoragePath,
   })
 
   if (error || !data) {
@@ -106,12 +120,26 @@ export async function updateExpenseAction(
   const expenseId = String(formData.get('expenseId') ?? '')
   const parsed = parseExpenseForm(formData)
 
-  const errors = validateExpenseInput(parsed)
+  const errors: ExpenseFieldErrors = validateExpenseInput(parsed)
+  const receiptError = validateReceiptPath(parsed.receiptStoragePath, parsed.relationshipId)
+  if (receiptError) errors.receipt = receiptError
   if (Object.keys(errors).length > 0) {
     return { errors }
   }
 
   const supabase = await createClient()
+
+  // update_expense always overwrites receipt_storage_path, so the form
+  // always sends the full desired value (unchanged path included). Read
+  // the current one first so a replaced/removed receipt can be deleted
+  // AFTER the update succeeds — never before.
+  const { data: current } = await supabase
+    .from('expenses')
+    .select('receipt_storage_path')
+    .eq('id', expenseId)
+    .maybeSingle()
+  const previousPath = (current?.receipt_storage_path as string | null | undefined) ?? null
+
   const { error } = await supabase.rpc('update_expense', {
     p_expense_id: expenseId,
     p_category_id: parsed.categoryId,
@@ -121,11 +149,21 @@ export async function updateExpenseAction(
     p_child_ids: parsed.childIds,
     p_parent_one_percentage: parsed.parentOnePercentage,
     p_parent_two_percentage: parsed.parentTwoPercentage,
-    p_receipt_storage_path: null,
+    p_receipt_storage_path: parsed.receiptStoragePath,
   })
 
   if (error) {
     return { message: mapExpenseErrorToHebrew(error) }
+  }
+
+  if (previousPath && previousPath !== parsed.receiptStoragePath) {
+    // Best effort, under the user's own session: receipts_delete only
+    // allows it because nothing references the old object any more. On
+    // failure it's just an orphan, never a broken expense.
+    const { error: removeError } = await supabase.storage.from(RECEIPT_BUCKET).remove([previousPath])
+    if (removeError) {
+      console.error('Failed to delete replaced receipt', removeError.message)
+    }
   }
 
   redirect(`/dashboard/relationships/${parsed.relationshipId}/expenses/${expenseId}`)

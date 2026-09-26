@@ -3,6 +3,7 @@
 import { useActionState, useState } from 'react'
 import Link from 'next/link'
 import { createExpenseAction, updateExpenseAction, type ExpenseFormState } from '@/app/actions/expenses'
+import { ReceiptField } from './receipt-field'
 
 type ItemRow = { description: string; amount: string; included: boolean }
 
@@ -17,6 +18,7 @@ export function ExpenseForm({
   defaultParentOnePercentage,
   defaultParentTwoPercentage,
   forceOverrideSplit = false,
+  initialReceiptPath = null,
   initialValues,
 }: {
   mode: 'create' | 'edit'
@@ -27,6 +29,7 @@ export function ExpenseForm({
   defaultParentOnePercentage: number
   defaultParentTwoPercentage: number
   forceOverrideSplit?: boolean
+  initialReceiptPath?: string | null
   initialValues?: {
     merchantName: string
     expenseDate: string
@@ -45,6 +48,7 @@ export function ExpenseForm({
       ? initialValues.items
       : [{ description: '', amount: '', included: true }]
   )
+  const [receiptUploading, setReceiptUploading] = useState(false)
   const [selectedChildIds, setSelectedChildIds] = useState<string[]>(initialValues?.childIds ?? [])
 
   const isOverriddenInitially =
@@ -302,11 +306,14 @@ export function ExpenseForm({
         {state?.errors?.splitRatio && <p className="text-sm text-red-600">{state.errors.splitRatio}</p>}
       </div>
 
-      <div className="flex flex-col gap-1 rounded border border-dashed border-zinc-300 p-3 opacity-60">
-        <span className="text-sm font-medium">צירוף קבלה</span>
-        <input type="file" disabled className="text-sm" />
-        <p className="text-xs text-zinc-500">אפשרות צירוף קבלה תהיה זמינה בקרוב.</p>
-      </div>
+      <ReceiptField
+        relationshipId={relationshipId}
+        expenseId={expenseId}
+        originalPath={initialReceiptPath}
+        error={state?.errors?.receipt}
+        saving={pending}
+        onUploadingChange={setReceiptUploading}
+      />
 
       {state?.message && (
         <p role="alert" className="text-sm text-red-600">
@@ -316,10 +323,10 @@ export function ExpenseForm({
 
       <button
         type="submit"
-        disabled={pending}
+        disabled={pending || receiptUploading}
         className="rounded bg-zinc-900 px-4 py-2 text-white disabled:opacity-50"
       >
-        {pending ? 'שומר/ת...' : 'שמירה כטיוטה'}
+        {pending ? 'שומר/ת...' : receiptUploading ? 'ממתין לסיום העלאת הקבלה...' : 'שמירה כטיוטה'}
       </button>
 
       <Link href={cancelHref} className="text-center text-sm underline">
