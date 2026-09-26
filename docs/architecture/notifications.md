@@ -1,6 +1,8 @@
 # Beta email notifications — architecture
 
-Status: **designed, not live.** Nothing below is applied, deployed, or configured yet.
+Status:
+- The outbox migration `20260927000000` is **applied and verified live**. It enqueues rows but sends nothing.
+- The sender function, Resend and the cron schedule are **not live yet**. Rollout steps are in `docs/runbooks/notifications-rollout.md`.
 
 ## Scope (Beta)
 
@@ -62,7 +64,9 @@ pg_cron (every minute) ── pg_net POST ──> Edge Function send-notificatio
 
 - `supabase/migrations/20260927000000_add_notification_outbox.sql`: the outbox, the enqueue trigger, and the service_role-only RPCs.
 - `supabase/migrations/20260927000100_schedule_notification_sender.sql`: pg_cron + pg_net job. It reads the URL and secret from Vault; no secrets are in git.
-- `supabase/functions/send-notifications/index.ts`: the sender, which authenticates callers with `x-cron-secret` (compared in constant time).
+- `supabase/functions/send-notifications/index.ts`: a thin Deno binding for the sender.
+- `supabase/functions/send-notifications/lib.ts`: the whole sender. It authenticates callers with `x-cron-secret` (compared in constant time), validates configuration before claiming, and enforces a time budget.
+- `supabase/functions/_tests/`: `npm test` (Node's test runner) and `npm run typecheck:functions`. The Supabase CLI never deploys this folder.
 - `supabase/functions/send-notifications/templates.ts`: pure Hebrew RTL templates and the link builder (UUID-validated, https only except localhost).
 
 ## Rollout — each step needs explicit owner approval
