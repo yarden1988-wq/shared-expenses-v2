@@ -1,7 +1,10 @@
 # Receipt flow — two-user manual acceptance
 
+**Status: ACCEPTED — 2026-09-26.** Manual two-user browser acceptance performed by the project owner
+against commit `213db13` (branch `v3-payments`); reported as passing. The steps below were not executed
+by Claude.
+
 Live schema: `20260925120000_add_receipt_storage` + `20260926000000_validate_receipt_storage_path` (both applied).
-None of these steps has been executed by Claude — record real results only.
 
 **Accounts**
 - **A** and **B**: two members of the same active relationship **R**, with at least one child.
