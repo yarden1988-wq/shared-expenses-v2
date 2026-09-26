@@ -41,6 +41,13 @@ const RPC_ERROR_MESSAGES: Partial<Record<string, string>> = {
   reason_required: 'יש לציין סיבה.',
 }
 
+const RECEIPT_ERROR_CODES = new Set(['invalid_receipt_storage_path', 'receipt_not_found', 'receipt_already_attached'])
+
+export function isReceiptError(error: { message?: string; code?: string } | null | undefined): boolean {
+  if (error?.code === '23505' && error.message?.includes('expenses_receipt_storage_path_key')) return true
+  return RECEIPT_ERROR_CODES.has(error?.message?.trim() ?? '')
+}
+
 export function mapExpenseErrorToHebrew(
   error: { message?: string; code?: string } | null | undefined
 ): string {

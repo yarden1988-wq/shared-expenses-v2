@@ -1,4 +1,4 @@
-import type { NextRequest } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { RECEIPT_BUCKET, isValidReceiptPath, receiptContentType, receiptExtension } from '@/lib/receipts/constants'
 
@@ -14,15 +14,28 @@ import { RECEIPT_BUCKET, isValidReceiptPath, receiptContentType, receiptExtensio
 // declared MIME type), so they are always served as an attachment, with a
 // Content-Type derived from our own extension allowlist, nosniff, and a
 // sandboxing CSP in case a browser renders them anyway.
-export async function GET(_request: NextRequest, ctx: RouteContext<'/dashboard/relationships/[id]/expenses/[expenseId]/receipt'>) {
+export async function GET(request: NextRequest, ctx: RouteContext<'/dashboard/relationships/[id]/expenses/[expenseId]/receipt'>) {
   const { id, expenseId } = await ctx.params
   const supabase = await createClient()
+
+  // A download link is a top-level navigation, so a bare error body would
+  // replace the app. Send the user back to the expense page instead, which
+  // shows a Hebrew notice (or its own 404 if the expense isn't visible to
+  // them — no more information than visiting that page directly).
+  const backToExpense = () =>
+    NextResponse.redirect(
+      new URL(
+        `/dashboard/relationships/${encodeURIComponent(id)}/expenses/${encodeURIComponent(expenseId)}?receipt=unavailable`,
+        request.url
+      ),
+      303
+    )
 
   const {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) {
-    return new Response('Unauthorized', { status: 401 })
+    return NextResponse.redirect(new URL('/login', request.url), 303)
   }
 
   const { data: expense } = await supabase
@@ -33,12 +46,12 @@ export async function GET(_request: NextRequest, ctx: RouteContext<'/dashboard/r
 
   const path = expense?.receipt_storage_path as string | null | undefined
   if (!expense || expense.relationship_id !== id || !path || !isValidReceiptPath(path, id)) {
-    return new Response('Not found', { status: 404 })
+    return backToExpense()
   }
 
   const { data: blob, error } = await supabase.storage.from(RECEIPT_BUCKET).download(path)
   if (error || !blob) {
-    return new Response('Not found', { status: 404 })
+    return backToExpense()
   }
 
   return new Response(blob, {

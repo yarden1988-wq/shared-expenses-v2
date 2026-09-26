@@ -1,6 +1,6 @@
 'use client'
 
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { CircleCheck, Download, FileText, LoaderCircle, Paperclip, RefreshCw, Trash2, Undo2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import {
@@ -17,6 +17,12 @@ import {
 // - 'new':      a file uploaded in this session, not yet saved
 type Selection = { kind: 'original' } | { kind: 'none' } | { kind: 'new'; path: string; fileName: string }
 
+function discardUnsavedUpload(current: Selection) {
+  if (current.kind !== 'new') return
+  // Best effort: if this fails the object is just an orphan.
+  void createClient().storage.from(RECEIPT_BUCKET).remove([current.path])
+}
+
 // Upload happens straight from the browser under the user's own session
 // (Storage RLS: participant + strict path + owner). The form only submits
 // the resulting path; the server action saves it via the RPC and only
@@ -30,6 +36,7 @@ export function ReceiptField({
   expenseId,
   originalPath,
   error,
+  errorSource,
   saving,
   onUploadingChange,
 }: {
@@ -37,6 +44,9 @@ export function ReceiptField({
   expenseId?: string
   originalPath: string | null
   error?: string
+  // Identity of the save result `error` came from (the useActionState
+  // state object): each save yields a new object, which re-arms the error.
+  errorSource?: unknown
   // While the form is saving, the selection must not change: discarding an
   // unsaved upload mid-save would delete the object being attached.
   saving: boolean
@@ -48,19 +58,41 @@ export function ReceiptField({
   const [selection, setSelection] = useState<Selection>(originalPath ? { kind: 'original' } : { kind: 'none' })
   const [uploading, setUploading] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
+  // A server-side receipt error (from the last save) stops applying once
+  // the user acts on the receipt; the next save's result replaces it.
+  const [dismissedErrorSource, setDismissedErrorSource] = useState<unknown>(undefined)
+
+  function clearErrors() {
+    setLocalError(null)
+    setDismissedErrorSource(errorSource)
+  }
 
   const pathToSave =
     selection.kind === 'new' ? selection.path : selection.kind === 'original' ? (originalPath ?? '') : ''
 
+  // Leaving the form (cancel, back, in-app navigation) with an unsaved
+  // upload would orphan it, so discard it on unmount. Skipped while a save
+  // is in flight (a successful save redirects away mid-save). Even if this
+  // raced a save that just attached the object, receipts_delete refuses to
+  // delete a referenced object, so it can never break a saved expense.
+  const latest = useRef({ selection, saving })
+  const unmounted = useRef(false)
+  useEffect(() => {
+    latest.current = { selection, saving }
+  })
+  useEffect(() => {
+    const state = latest
+    const gone = unmounted
+    gone.current = false
+    return () => {
+      gone.current = true
+      if (!state.current.saving) discardUnsavedUpload(state.current.selection)
+    }
+  }, [])
+
   function setBusy(value: boolean) {
     setUploading(value)
     onUploadingChange(value)
-  }
-
-  function discardUnsavedUpload(current: Selection) {
-    if (current.kind !== 'new') return
-    // Best effort: if this fails the object is just an orphan.
-    void createClient().storage.from(RECEIPT_BUCKET).remove([current.path])
   }
 
   async function handleFileChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -68,7 +100,7 @@ export function ReceiptField({
     event.target.value = '' // allow re-picking the same file after an error
     if (!file) return
 
-    setLocalError(null)
+    clearErrors()
     // Busy from the first await, so Save can't go out mid-validation.
     setBusy(true)
     const validationError = await validateReceiptFile(file)
@@ -88,6 +120,12 @@ export function ReceiptField({
     const { error: uploadError } = await createClient()
       .storage.from(RECEIPT_BUCKET)
       .upload(path, file, { upsert: false, contentType: file.type })
+
+    // The user left mid-upload: nothing can ever attach this object now.
+    if (unmounted.current) {
+      if (!uploadError) discardUnsavedUpload({ kind: 'new', path, fileName: file.name })
+      return
+    }
     setBusy(false)
 
     if (uploadError) {
@@ -100,13 +138,13 @@ export function ReceiptField({
   }
 
   function handleRemove() {
-    setLocalError(null)
+    clearErrors()
     discardUnsavedUpload(selection)
     setSelection({ kind: 'none' })
   }
 
   function handleRestoreOriginal() {
-    setLocalError(null)
+    clearErrors()
     discardUnsavedUpload(selection)
     setSelection({ kind: 'original' })
   }
@@ -115,7 +153,7 @@ export function ReceiptField({
     inputRef.current?.click()
   }
 
-  const shownError = localError ?? error
+  const shownError = localError ?? (errorSource !== undefined && errorSource === dismissedErrorSource ? undefined : error)
   const locked = uploading || saving
   const hasOriginal = !!originalPath
   const willReplaceOriginal = hasOriginal && selection.kind === 'new'
@@ -163,7 +201,7 @@ export function ReceiptField({
             <>
               <CircleCheck aria-hidden="true" className="mt-0.5 h-5 w-5 shrink-0 text-[var(--color-success)]" />
               <div className="flex min-w-0 flex-col">
-                <span className="text-sm font-medium">הקבלה הועלתה ותישמר עם ההוצאה</span>
+                <span className="text-sm font-medium">הקבלה הועלתה · תצורף בשמירת ההוצאה</span>
                 <span dir="auto" className="truncate text-xs text-muted">
                   {selection.fileName}
                 </span>
@@ -181,8 +219,12 @@ export function ReceiptField({
                 <span className="text-sm font-medium">קבלה מצורפת ({receiptKindLabel(originalPath)})</span>
                 {expenseId && (
                   // Plain <a>, not <Link>: a file download must never be prefetched.
+                  // New tab so a failed download (route redirects to the
+                  // expense page) can't unmount this form and lose edits.
                   <a
                     href={`/dashboard/relationships/${relationshipId}/expenses/${expenseId}/receipt`}
+                    target="_blank"
+                    rel="noopener"
                     className="inline-flex items-center gap-1 text-xs text-primary underline"
                   >
                     <Download aria-hidden="true" className="h-3.5 w-3.5" />

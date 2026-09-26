@@ -1,109 +1,45 @@
-# Receipt flow — manual two-user acceptance
+# Receipt flow — two-user manual acceptance
 
-Scope: receipt upload/replace/remove in the expense form, receipt download on
-the expense page, and (phase B) the `20260926000000_validate_receipt_storage_path`
-migration once it is approved and applied.
+Live schema: `20260925120000_add_receipt_storage` + `20260926000000_validate_receipt_storage_path` (both applied).
+None of these steps has been executed by Claude — record real results only.
 
-## Setup
+**Accounts**
+- **A** and **B**: two members of the same active relationship **R**, with at least one child.
+- **C**: signed in, but not a member of R.
 
-- **A** and **B**: two accounts in the same **active** relationship `R`
-  (with at least one child).
-- **C**: a third account that is not in `R`.
-- Test files:
-  - `ok.jpg` (under 1 MB)
-  - `ok.pdf`
-  - `ok.png` or `ok.webp`
-  - `big.jpg` (over 10 MB)
-  - `fake.jpg`: a `.txt` file renamed to `.jpg`
-  - `photo.heic`, if you have one
-- Use a phone-width viewport (or a real phone) for at least one full pass.
-- Keep the Supabase dashboard open (Storage → `receipts`) to watch the objects.
+**Files**
+- `ok.jpg` (under 1 MB) and `ok.pdf`
+- `big.jpg` (over 10 MB)
+- `fake.jpg` (a `.txt` renamed to `.jpg`)
+- `doc.gif` or `.heic`
 
-## Phase A: runs against the CURRENT live schema (before the follow-up migration)
+Keep Supabase → Storage → `receipts` → `relationships/<R>/` open to watch objects appear and disappear. Do at least one full pass at phone width.
 
-### Upload during create (A)
+| # | Who | Steps | Expected |
+|---|---|---|---|
+| 1 | A | New expense → **צירוף קבלה** → pick `doc.gif` / `.heic` | "ניתן לצרף רק קובץ JPG, PNG, WEBP או PDF." No new object. |
+| 2 | A | Pick `big.jpg` | "הקובץ גדול מדי. הגודל המרבי הוא 10MB." No new object. |
+| 3 | A | Pick `fake.jpg` | "תוכן הקובץ אינו תואם את סוג הקובץ." No new object. |
+| 4 | A | Pick `ok.jpg` | While uploading: "מעלה את הקבלה…" and Save disabled. Then "הקבלה הועלתה · תצורף בשמירת ההוצאה". New object `<uuid>.jpg` (lowercase; original filename not in path). |
+| 5 | A | Fill the form, **Save as draft** | Detail page shows "קבלה מצורפת". **הורדת קבלה** downloads `receipt-<id>.jpg`, as a download, not opened inline. |
+| 6 | B | Open the expense list, then A's draft URL, then `…/expenses/<id>/receipt` | The draft is not listed. The page is a 404. The receipt URL redirects to the same 404. |
+| 7 | C | Open `…/relationships/<R>/expenses/<id>/receipt` | Redirects to a 404. No file. |
+| 8 | A | **Submit** | Status "ממתין לאישור". |
+| 9 | B | Open the expense → **הורדת קבלה** | Download succeeds. |
+| 10 | B | Request changes | Status "נדרשים שינויים". |
+| 11 | A | Edit → change only the merchant name → Save | Receipt **still attached** (regression check). |
+| 12 | A | Edit → **החלפת קבלה** → pick `ok.pdf` | "הקבלה הקודמת תוחלף בעת השמירה." Both objects now exist. |
+| 13 | A | **ביטול ושמירת הקבלה הקודמת** (undo) | Back to "קבלה מצורפת". The new PDF object is deleted. |
+| 14 | A | **Failed save:** replace with `ok.pdf` again, clear every item description, Save | Validation error, and the receipt field keeps the new PDF. **The old JPG still exists and is still attached** (check the detail page in another tab). |
+| 15 | A | Leave the edit page via **ביטול וחזרה** without saving | The unsaved PDF object is deleted. The old JPG is still attached. |
+| 16 | A | Edit → replace with `ok.pdf` → Save | Detail page shows the PDF. The old JPG object is **gone**, deleted only after the save. |
+| 17 | A | Edit → **הסרת קבלה** → "הקבלה תוסר בעת השמירה" → Save | "אין קבלה מצורפת". The PDF object is gone. |
+| 18 | A, B | Attach a new receipt → submit → B **rejects** | B can still download. A has no edit button. In A's console, `supabase.storage.from('receipts').remove(['<path>'])` leaves the object in place. |
+| 19 | A | **Duplicate path:** on another draft, run `update_expense` from the console with the rejected expense's receipt path (or save the form with that path) | Rejected with "קבלה זו כבר מצורפת להוצאה אחרת…". Nothing changes. |
+| 20 | B | Upload anything, then try to attach it to one of A's expenses, or delete one of A's objects, from the console | Denied: `receipt_not_found` on attach. The delete leaves the object in place. |
+| 21 | A | Delete a receipt object from the dashboard while it is attached, then click **הורדת קבלה** | Back on the expense page, with the Hebrew notice "לא ניתן היה להוריד את הקבלה…". Nothing crashes. Refreshing clears the notice. |
+| 22 | A | Go offline (DevTools) → pick `ok.jpg` | "העלאת הקבלה נכשלה…". The form stays usable, and a retry works once you are back online. |
 
-1. Open **New expense**. The receipt card should say "לא צורפה קבלה" and show a **צירוף קבלה** button.
-2. Pick `big.jpg` → error "הקובץ גדול מדי…". Nothing is uploaded (the bucket is unchanged).
-3. Pick `fake.jpg` → error "תוכן הקובץ אינו תואם…". Nothing is uploaded.
-4. Pick `photo.heic` (if the picker allows it) → the type error appears. Nothing is uploaded.
-5. Pick `ok.jpg`:
-   - While uploading, the card shows "מעלה את הקבלה…" and the save button is disabled ("ממתין לסיום העלאת הקבלה...").
-   - When it finishes, it shows "הקבלה הועלתה ותישמר עם ההוצאה" plus the filename.
-   - In the dashboard, the object is `relationships/<R>/<uuid>.jpg`: lowercase, and the original filename does not appear in the path.
-6. **Replace before saving:** pick `ok.pdf` → the card updates. In the dashboard the unsaved `.jpg` has been deleted and only the `.pdf` remains.
-7. Fill in the form and save as a draft. You land on the expense page, which shows "קבלה מצורפת · PDF" with a **הורדה** button.
-8. Tap **הורדה**. The file downloads (it is not shown in the tab) as `receipt-<expenseId>.pdf` and opens correctly.
-   - In DevTools → Network, the response has:
-     - `Content-Disposition: attachment`
-     - `X-Content-Type-Options: nosniff`
-     - `Cache-Control: private, no-store`
-   - No `supabase.co` URL is ever visible to the browser.
-
-### Draft privacy (B, C)
-
-9. **B** opens `/dashboard/relationships/<R>/expenses/<expenseId>/receipt` directly → 404 (the draft is invisible to B).
-10. **C** opens the same URL → 404. Signed out, the URL redirects to login.
-
-### Edit without touching the receipt (A)
-
-11. **A** edits the draft, changes only the merchant name, and saves. The receipt is **still attached** and still downloads (regression check: `update_expense` overwrites the path column).
-
-### Submit → approver access (A, B)
-
-12. **A** submits the expense.
-13. **B** opens the expense and sees "קבלה מצורפת". **הורדה** works for B.
-14. **B** requests changes.
-
-### Replace after changes requested (A)
-
-15. **A** edits the expense:
-    - The card shows "קבלה מצורפת (PDF)" with **החלפת קבלה** and **הסרת קבלה**.
-    - **החלפת קבלה** → pick `ok.png` → the card says "הקבלה הקודמת תוחלף בעת השמירה".
-    - **ביטול ושמירת הקבלה הקודמת** restores the PDF, and the unsaved PNG is deleted from the bucket.
-    - Replace with `ok.png` again and save.
-16. Check the result:
-    - The expense page shows "תמונה", and the download is the PNG.
-    - In the dashboard, the old PDF is **gone**, and it was deleted only after the save succeeded.
-17. **Failure ordering check:** replace the receipt again, but before saving, make the save fail (e.g. clear all items so validation fails, or set the date to the future). The old receipt must still be in the bucket and still attached.
-
-### Remove (A)
-
-18. **A** edits the expense, taps **הסרת קבלה** → "הקבלה תוסר בעת השמירה", then saves.
-    - The page shows "לא צורפה קבלה".
-    - The old object has been deleted from the bucket.
-
-### Uploader-only delete and referenced-object protection (browser console, as A/B)
-
-19. Re-attach a receipt, submit, and have **B** approve it.
-20. As **A**, run `supabase.storage.from('receipts').remove(['<that path>'])` from the console.
-    - The object must **still exist**, because an approved expense references it.
-21. As **B**, try to remove any object A uploaded → it still exists.
-22. As **A**, try `upload('<an existing path>', file, { upsert: true })` → denied.
-
-### Errors and states
-
-23. Go offline (DevTools) and pick a file → "העלאת הקבלה נכשלה…". The form stays usable and you can retry.
-24. RTL layout at 360px width:
-    - The buttons wrap.
-    - Tap targets are at least 44px.
-    - The filename truncates.
-    - Nothing scrolls horizontally.
-
-## Phase B: after `20260926000000_validate_receipt_storage_path.sql` is approved and applied
-
-Run the pre-apply checks listed in the migration header first. Then run these as RPC calls from the console, as **A**:
-
-| Call | Expected |
-|---|---|
-| `create_expense`/`update_expense` with a receipt path A uploaded | success |
-| well-formed path to a non-existent object | `receipt_not_found` → "הקבלה לא נמצאה…" |
-| path to an object **B** uploaded (in R) | `receipt_not_found` |
-| path under another relationship | `invalid_receipt_storage_path` |
-| uppercase uuid / `.JPG` / `.gif` | `invalid_receipt_storage_path` |
-| same path on a second expense | `receipt_already_attached` → "קבלה זו כבר מצורפת…" |
-| edit with unchanged path | success |
-| edit with path `null` | success |
-| submit / approve / reject an expense with a receipt | unaffected |
-
-After that, rerun Phase A steps 5–18 end to end. The UI flow must behave identically.
+**Check in DevTools on the step 5 or step 9 download**
+- The response headers include `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` and `Cache-Control: private, no-store`.
+- No `supabase.co` URL appears in the page or in the Network tab.

@@ -3,7 +3,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { validateExpenseInput, type ExpenseFieldErrors, type ExpenseItemInput } from '@/lib/validation/expense'
-import { mapExpenseErrorToHebrew } from '@/lib/expenses/errors'
+import { isReceiptError, mapExpenseErrorToHebrew } from '@/lib/expenses/errors'
 import { RECEIPT_BUCKET, isValidReceiptPath } from '@/lib/receipts/constants'
 
 function parseItems(raw: string): ExpenseItemInput[] {
@@ -71,6 +71,13 @@ function validateReceiptPath(path: string | null, relationshipId: string): strin
   return undefined
 }
 
+// Receipt-specific DB rejections (validate_expense_receipt_path trigger)
+// are shown on the receipt field itself, not as a generic form message.
+function saveErrorState(error: { message?: string; code?: string } | null): ExpenseFormState {
+  const message = mapExpenseErrorToHebrew(error)
+  return isReceiptError(error) ? { errors: { receipt: message } } : { message }
+}
+
 // ---- Create / update (always leave the expense in draft) ----
 
 export type ExpenseFormState =
@@ -107,7 +114,7 @@ export async function createExpenseAction(
   })
 
   if (error || !data) {
-    return { message: mapExpenseErrorToHebrew(error) }
+    return saveErrorState(error)
   }
 
   redirect(`/dashboard/relationships/${parsed.relationshipId}/expenses/${data.expense_id}`)
@@ -153,16 +160,19 @@ export async function updateExpenseAction(
   })
 
   if (error) {
-    return { message: mapExpenseErrorToHebrew(error) }
+    return saveErrorState(error)
   }
 
   if (previousPath && previousPath !== parsed.receiptStoragePath) {
     // Best effort, under the user's own session: receipts_delete only
     // allows it because nothing references the old object any more. On
     // failure it's just an orphan, never a broken expense.
-    const { error: removeError } = await supabase.storage.from(RECEIPT_BUCKET).remove([previousPath])
-    if (removeError) {
-      console.error('Failed to delete replaced receipt', removeError.message)
+    // An RLS-refused delete is NOT an error: it returns an empty list.
+    const { data: removed, error: removeError } = await supabase.storage
+      .from(RECEIPT_BUCKET)
+      .remove([previousPath])
+    if (removeError || removed?.length !== 1) {
+      console.error('Replaced receipt was not deleted (left as orphan)', removeError?.message ?? 'no rows removed')
     }
   }
 

@@ -311,6 +311,7 @@ export function ExpenseForm({
         expenseId={expenseId}
         originalPath={initialReceiptPath}
         error={state?.errors?.receipt}
+        errorSource={state}
         saving={pending}
         onUploadingChange={setReceiptUploading}
       />
